@@ -37,11 +37,57 @@ async function run() {
 
     // JWT
 
+    app.post('/jwt' , async (req , res)  => {
+      const  user = req.body 
+      const token = jwt.sign(user , process.env.ACCESS_TOKEN_SECRET , {expiresIn : '1h'})
+      res.send({ token })
+    })
+    // middleware
+    const verifyToken = (req , res, next) => {
+      
+      if(!req.headers.authorized){
+      return   res.status(401).send({message : "Unauthorized Access"})
+      }
+      const token = req.headers.authorized.split(' ')[1]
+      jwt.verify(token , process.env.ACCESS_TOKEN_SECRET , (err , decode) => {
+        if(err){
+          return   res.status(401).send({message : "Unauthorized Access"})
+        }
+        req.decoded = decode
+        next()
+      })
+    }
+
+    // verifying admin after verifyToken
+
+    const VerifyAdmin = async (req , res , next) => {
+      const email = req.decoded?.email;
+      const query = {email : email};
+      const user = await BistroBossUserCollection.findOne(query);
+      const isAdmin = user?.role === 'Admin';
+      if(!isAdmin){
+        return   res.status(403).send({message : "Forbidden Access"})
+      }
+      next()
+    }
 
     // getting MENU all data 
+
+    app.post('/menu' , verifyToken , VerifyAdmin , async (req , res ) => {
+      const items = req.body
+      const result = await BistroBossCollection.insertOne(items)
+      res.send(result)
+    })
     app.get('/menu' , async (req , res)=> {
         const result =  await BistroBossCollection.find().toArray()
         res.send(result)
+    })
+
+    app.delete('/menu/:id' ,verifyToken , VerifyAdmin  , async ( req , res ) => {
+      const id = req.params.id;
+      const query = { _id : new ObjectId(id)};
+      const result = await BistroBossCollection.deleteOne(query);
+      res.send(result);
     })
     // cart collection 
     app.post('/cart' , async (req , res)=> {
@@ -78,9 +124,22 @@ async function run() {
     res.send(result)
    })
   //  GETTING ALL USERS
-   app.get('/users' , async (req , res) => {
+   app.get('/users' ,  verifyToken,  VerifyAdmin, async (req , res) => {
     const result = await BistroBossUserCollection.find().toArray()
     res.send(result)
+   })
+   app.get('/users/admin/:email' , verifyToken , async (req , res) => {
+    const email = req.params.email
+    if(email !== req.decoded.email)
+    return   res.status(403).send({message : "Unauthorized Access"})
+  const query = {email : email}
+  const result = await BistroBossUserCollection.findOne(query)
+  let admin = false
+  if(result){
+    admin = result.role === "Admin"
+
+  }
+  res.send({ admin })
    })
   // DELETING USERS
   app.delete('/users/:id' , async (req , res)=>{
