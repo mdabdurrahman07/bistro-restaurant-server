@@ -82,6 +82,31 @@ async function run() {
         const result =  await BistroBossCollection.find().toArray()
         res.send(result)
     })
+    // dynamic getting
+    app.get('/menu/:id' , async (req , res)=> {
+      const id = req.params.id;
+      const query = {_id : id}
+      const result =  await BistroBossCollection.findOne(query)
+      res.send(result)
+  })
+  // patch menu 
+  app.patch('/menu/:id' , async (req , res ) => {
+    const Item = req.body
+    const id = req.params.id;
+    const query = { _id : new ObjectId(id)};
+    const UpdatedDoc = {
+      $set : {
+        name : Item.name,
+        category : Item.category,
+        price : Item.price,
+        recipe : Item.recipe,
+        image : Item.image
+      }
+      
+    }
+    const result = await BistroBossCollection.updateOne(query , UpdatedDoc)
+    res.send(result);
+  })
 
     app.delete('/menu/:id' ,verifyToken , VerifyAdmin  , async ( req , res ) => {
       const id = req.params.id;
