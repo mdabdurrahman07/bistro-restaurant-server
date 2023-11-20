@@ -2,16 +2,46 @@ const express = require('express')
 const cors = require('cors')
 const app = express()
 const jwt = require('jsonwebtoken');
-const port = process.env.PORT || 8000
 require('dotenv').config()
+const stripe = require("stripe")(process.env.STRIPE_SECRET_KEY)
+const port = process.env.PORT || 8000
+
 
 // middleware 
 app.use(express.json())
 app.use(cors())
 
+ // middleware
+ const verifyToken = (req , res, next) => {
+      
+  if(!req.headers.authorized){
+  return   res.status(401).send({message : "Unauthorized Access"})
+  }
+  const token = req.headers.authorized.split(' ')[1]
+  jwt.verify(token , process.env.ACCESS_TOKEN_SECRET , (err , decode) => {
+    if(err){
+      return   res.status(401).send({message : "Unauthorized Access"})
+    }
+    req.decoded = decode
+    next()
+  })
+}
+
+ // verifying admin after verifyToken
+
+ const VerifyAdmin = async (req , res , next) => {
+  const email = req.decoded?.email;
+  const query = {email : email};
+  const user = await BistroBossUserCollection.findOne(query);
+  const isAdmin = user?.role === 'Admin';
+  if(!isAdmin){
+    return   res.status(403).send({message : "Forbidden Access"})
+  }
+  next()
+}
 
 
-
+// console.log(process.env.STRIPE_SECRET_KEY)
 
 const { MongoClient, ServerApiVersion, ObjectId } = require('mongodb');
 const uri = `mongodb+srv://${process.env.DB_USER}:${process.env.DB_PASS}@cluster0.abtiefd.mongodb.net/?retryWrites=true&w=majority`;
@@ -34,6 +64,26 @@ async function run() {
     const BistroBossCollection = client.db('BistroBossDB').collection('Menu')
     const BistroBossCartCollection = client.db('BistroBossDB').collection('Cart')
     const BistroBossUserCollection = client.db('BistroBossDB').collection('User')
+    const BistroBossPaymentCollection = client.db('BistroBossDB').collection('Payment')
+
+
+    // Stripe Payments 
+
+    app.post("/create-payment-intent" , async (req, res) =>{
+        const { price } = req.body
+        const amount = parseInt(price * 100)
+
+
+        const paymentIntent = await stripe.paymentIntents.create({
+          amount: amount,
+          currency: "usd",
+          payment_method_types : ['card']
+        });
+      
+        res.send({
+          clientSecret: paymentIntent.client_secret,
+        });
+    })
 
     // JWT
 
@@ -42,34 +92,9 @@ async function run() {
       const token = jwt.sign(user , process.env.ACCESS_TOKEN_SECRET , {expiresIn : '1h'})
       res.send({ token })
     })
-    // middleware
-    const verifyToken = (req , res, next) => {
-      
-      if(!req.headers.authorized){
-      return   res.status(401).send({message : "Unauthorized Access"})
-      }
-      const token = req.headers.authorized.split(' ')[1]
-      jwt.verify(token , process.env.ACCESS_TOKEN_SECRET , (err , decode) => {
-        if(err){
-          return   res.status(401).send({message : "Unauthorized Access"})
-        }
-        req.decoded = decode
-        next()
-      })
-    }
+   
 
-    // verifying admin after verifyToken
-
-    const VerifyAdmin = async (req , res , next) => {
-      const email = req.decoded?.email;
-      const query = {email : email};
-      const user = await BistroBossUserCollection.findOne(query);
-      const isAdmin = user?.role === 'Admin';
-      if(!isAdmin){
-        return   res.status(403).send({message : "Forbidden Access"})
-      }
-      next()
-    }
+   
 
     // getting MENU all data 
 
@@ -155,14 +180,16 @@ async function run() {
    })
    app.get('/users/admin/:email' , verifyToken , async (req , res) => {
     const email = req.params.email
-    if(email !== req.decoded.email)
-    return   res.status(403).send({message : "Unauthorized Access"})
+    if (req.decoded.email !== email) {
+      res.send({ admin: false });
+    }
+    // if(email !== req.decoded.email)
+    // return   res.status(403).send({message : "Unauthorized Access"})
   const query = {email : email}
   const result = await BistroBossUserCollection.findOne(query)
-  let admin = false
+  let admin = false 
   if(result){
     admin = result.role === "Admin"
-
   }
   res.send({ admin })
    })
@@ -185,6 +212,22 @@ async function run() {
     }
     const result = await BistroBossUserCollection.updateOne(filter , updatedAdmin)
     res.send(result)
+  })
+
+
+  // USER Payments
+
+  app.post('/payments' , async (req , res ) => {
+    const PaymentInfo = req.body;
+    const paymentResult = await BistroBossPaymentCollection.insertOne(PaymentInfo);
+    console.log('Payment' , PaymentInfo);
+    const query = {
+      _id : {
+        $in : PaymentInfo.cartId.map(id => new ObjectId(id))
+      }
+    }
+    const DeleteResult = await BistroBossCartCollection.deleteMany(query)
+    res.send({paymentResult , DeleteResult});
   })
 
 
@@ -211,3 +254,5 @@ app.listen(port , ()=>{
 
 
 
+
+// ismailjosim99@gmail.com
