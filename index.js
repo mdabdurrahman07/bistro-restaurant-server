@@ -60,7 +60,7 @@ const client = new MongoClient(uri, {
 async function run() {
   try {
     // Connect the client to the server	(optional starting in v4.7)
-    await client.connect();
+    // await client.connect();
     const BistroBossCollection = client.db('BistroBossDB').collection('Menu')
     const BistroBossCartCollection = client.db('BistroBossDB').collection('Cart')
     const BistroBossUserCollection = client.db('BistroBossDB').collection('User')
@@ -178,13 +178,13 @@ async function run() {
     const result = await BistroBossUserCollection.find().toArray()
     res.send(result)
    })
-   app.get('/users/admin/:email' , verifyToken , async (req , res) => {
+   app.get('/users/admin/:email'   , async (req , res) => {
+    console.log('hello')
     const email = req.params.email
-    if (req.decoded.email !== email) {
-      res.send({ admin: false });
-    }
-    // if(email !== req.decoded.email)
-    // return   res.status(403).send({message : "Unauthorized Access"})
+    // if (req.decoded.email !== email) {
+    //   res.send({ admin: false });
+    // }
+
   const query = {email : email}
   const result = await BistroBossUserCollection.findOne(query)
   let admin = false 
@@ -230,6 +230,79 @@ async function run() {
     res.send({paymentResult , DeleteResult});
   })
 
+  // getting payment infos
+
+  app.get('/payments/:email' , verifyToken , async (req , res) => {
+    const query = {email :  req.params.email}
+    if(req.params.email !== req.decoded?.email){
+      return   res.status(403).send({message : "Forbidden Access"})
+    }
+    const result = await BistroBossPaymentCollection.find(query).toArray()
+    res.send(result)
+  })
+    // analytics of PRICES, MENU, MENUITEMS, ORDERS
+
+    app.get('/admin-stats' , async (req , res ) => {
+      const Users = await BistroBossUserCollection.estimatedDocumentCount() 
+      const Orders = await BistroBossPaymentCollection.estimatedDocumentCount() 
+      const MenuItems = await BistroBossCollection.estimatedDocumentCount() 
+      const Prices = await BistroBossPaymentCollection.aggregate([
+        {
+          $group: {
+            _id : null,
+            totalRevenue : {
+              $sum : '$price'
+            }
+          }
+        }
+      ]).toArray()
+      const revenue = Prices.length > 0 ? Prices[0].totalRevenue : 0
+      res.send({Users , Orders , MenuItems , revenue})
+    })
+
+    // Order Analytics 
+
+     app.get('/order-analytics' , async (req , res) => {
+      const result = await BistroBossPaymentCollection.aggregate([
+        // step1 : releasing the foodId {Which is a Array}
+            {
+              $unwind: '$foodId'
+            },
+
+            // then MATCHING the foodId ('623574746346') with the Menu collection (_id)
+            {
+              $lookup: {
+                from: 'Menu',
+                localField: 'foodId',
+                foreignField: '_id',
+                as: 'foodItems'
+              }
+            },
+            // now releasing the foodItems (where my matched data has stored)
+            {
+              $unwind: '$foodItems'
+            },
+            // grouping categories , quantity , totalRevenue
+            {
+              $group: {
+                _id: '$foodItems.category',
+                quantity: { $sum: 1},
+                TotalRevenue: {$sum : "$foodItems.price"}
+              }
+            },
+            // changing the _id with category
+            {
+              $project: {
+                _id: 0 ,
+                category: '$_id',
+                quantity: '$quantity',
+                TotalRevenue: '$TotalRevenue'
+              }
+            }
+
+      ]).toArray()
+      res.send(result)
+     })
 
 
   
@@ -254,5 +327,3 @@ app.listen(port , ()=>{
 
 
 
-
-// ismailjosim99@gmail.com
